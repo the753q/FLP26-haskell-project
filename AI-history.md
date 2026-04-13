@@ -149,3 +149,147 @@ If you want, I can show how to mechanically desugar the whole expression step by
 
 ---
 ---
+data TestCaseDefinition = TestCaseDefinition
+  { -- | Test name (filename without @.test@ extension).
+    tcdName :: TestName,
+    -- | Path to the @.test@ file.
+    tcdTestSourcePath :: FilePath,
+
+how to access tcdName if i have testcase var in funciton
+
+
+
+Direct access:
+
+```haskell
+tcdName testcase
+```
+
+Because record fields in Haskell are just functions.
+
+Example:
+
+```haskell
+printName :: TestCaseDefinition -> String
+printName tc = tcdName tc
+```
+
+Or inline:
+
+```haskell
+map tcdName testCases
+```
+
+Mental model: `tcdName :: TestCaseDefinition -> TestName`
+
+So `tcdName testcase` ≈ “project field from struct”.
+
+Edge case: only works if record is in scope (module export matters).
+
+----
+----
+
+if i get this type
+
+type TestTag = String
+
+should i unpack it, like
+
+func testtag 
+so i do
+
+(TestTag tag) = tag...
+
+
+Short answer: depends if it’s a **type alias** or a **newtype**.
+
+### 1) If you have this:
+
+```haskell
+type TestTag = String
+```
+
+This is just an alias.
+➡️ No runtime wrapper exists.
+
+So you **cannot unpack it**:
+
+```haskell
+(TestTag tag) = ...
+```
+
+❌ invalid in Haskell
+
+You just treat it as `String`:
+
+```haskell
+f :: TestTag -> String
+f tag = tag
+```
+
+---
+
+### 2) If you want real “unpacking”, use `newtype`:
+
+```haskell
+newtype TestTag = TestTag String
+```
+
+Now you *can* pattern match:
+
+```haskell
+f :: TestTag -> String
+f (TestTag tag) = tag
+```
+
+Or constructor-based:
+
+```haskell
+f (TestTag t) = t
+```
+
+---
+
+### Mental model
+
+* `type` = rename (zero cost, invisible)
+* `newtype` = real wrapper (1-field box, zero runtime overhead but real type boundary)
+
+---
+
+### Quick rule
+
+If you ever want:
+
+* validation
+* stronger typing
+* pattern matching
+
+➡️ use `newtype`
+
+---
+
+### Edge case you might care about
+
+With `type TestTag = String`, this compiles:
+
+```haskell
+f :: TestTag -> TestTag
+f x = x ++ "a"
+```
+
+because it's literally just `String`.
+
+With `newtype`, you'd need explicit unwrapping/wrapping.
+
+---
+
+If you want, I can show a cleaner pattern for CLI args / tags where `newtype` saves you from mixing IDs accidentally.
+
+
+
+------
+-----
+
+
+
