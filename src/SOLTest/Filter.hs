@@ -55,9 +55,9 @@ matchesCriterion useRegex test criterion =
     (ByCategory val) -> testByCategory val
     (ByAny val) -> testByAny val
   where
-    testByTag val = val `elem` tcdTags test
-    testByCategory val = val == tcdCategory test
-    testByAny val = (val == tcdName test) || testByCategory val || testByTag val
+    testByTag val = val `elem` map trimFilterId (tcdTags test)
+    testByCategory val = val == trimFilterId (tcdCategory test)
+    testByAny val = (val == trimFilterId (tcdName test)) || testByCategory val || testByTag val
 
 -- | Trim leading and trailing whitespace from a filter identifier.
 trimFilterId :: String -> String
