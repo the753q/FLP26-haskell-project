@@ -150,7 +150,6 @@ filterSpecParser =
       )
 
 -- | Assemble raw filter string lists into a 'FilterSpec'.
-
 buildFilterSpec :: [String] -> [String] -> [String] -> [String] -> [String] -> [String] -> FilterSpec
 buildFilterSpec inc exc ic it ec et =
   FilterSpec
