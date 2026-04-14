@@ -293,3 +293,25 @@ If you want, I can show a cleaner pattern for CLI args / tags where `newtype` sa
 
 
 
+Viewed Filter.hs:1-71
+Searched for "data FilterSpec"
+Viewed Types.hs:1-273
+Edited Filter.hs
+
+No, your original `filterTests` implementation had several logical errors that prevented it from working as intended. I've gone ahead and rewritten it to be both correct and much more idiomatic Haskell.
+
+Here are the specific bugs that were in the original implementation:
+
+1. **Incorrect Excludes List:** Your `excludes` variable incorrectly checked the includes list (`fsIncludes spec`) instead of the excludes list (`fsExcludes spec`).
+2. **Missing Empty Includes Fallback:** The specifications mention "if no include criteria are given, all tests are included". Originally, if `fsIncludes` was empty, `matchesAny` would return `False` for everything, resulting in nothing being included. We need an explicit check for an empty `fsIncludes` list.
+3. **Hard-coded Regex Flag:** You passed `False` into `matchesAny` on both lines instead of taking the configuration from the user options via `fsUseRegex spec`. 
+4. **Flawed `foldr` Logic:**
+   * Your `selected` definition essentially translated to "keep include elements that overlap with excludes". It should have been removing excluded elements. Because `excludes` was mistakenly constructed using the inverted logic of `includes`, no overlap occurred, meaning `selected` would always be an empty list `[]`.
+   * Your `filteredOut` definition folded over `selected` and checked `if x elem tests`. Since `selected` is inherently a subset of `tests`, that condition is true for all elements, meaning it would just pass back `rest`. This meant `filteredOut` would also continuously be an empty list `[]`.
+
+
+-----
+------
+
+
+

@@ -36,7 +36,19 @@ filterTests ::
   FilterSpec ->
   [TestCaseDefinition] ->
   ([TestCaseDefinition], [TestCaseDefinition])
-filterTests spec tests = undefined
+filterTests spec tests = (selected, filteredOut)
+  where
+    isRegex = fsUseRegex spec
+
+    isIncluded :: TestCaseDefinition -> Bool
+    isIncluded test = null (fsIncludes spec) || matchesAny isRegex (fsIncludes spec) test
+    isExcluded :: TestCaseDefinition -> Bool
+    isExcluded = matchesAny isRegex (fsExcludes spec)
+    includedTests = foldr (\test rest -> if isIncluded test then test : rest else rest) [] tests
+    excludedTests = foldr (\test rest -> if isExcluded test then rest else test : rest) [] includedTests
+
+    selected = excludedTests
+    filteredOut = foldr (\test rest -> if test `elem` selected then rest else test : rest) [] tests
 
 -- | Check whether a test matches at least one criterion in the list.
 matchesAny :: Bool -> [FilterCriterion] -> TestCaseDefinition -> Bool
