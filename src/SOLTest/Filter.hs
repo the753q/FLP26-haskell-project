@@ -67,7 +67,7 @@ matchesAny useRegex criteria test =
 -- When @useRegex@ is 'True', the criterion value is treated as a POSIX
 -- regular expression matched against the relevant field(s).
 matchesCriterion :: Bool -> TestCaseDefinition -> FilterCriterion -> Bool
-matchesCriterion useRegex test criterion =
+matchesCriterion _ test criterion =
   -- Based on criterion type, test whether the given test matches the criteria
   case criterion of
     (ByTag val) -> testByTag val
