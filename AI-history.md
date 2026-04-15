@@ -1342,3 +1342,52 @@ That’s why you see `Right False` and `Right True`.
 ---
 ---
 
+Viewed Executor.hs:1-245
+
+The implementation of `checkInterpreterResult` has a few significant logic bugs. 
+
+Here is the current code for reference:
+```haskell
+checkInterpreterResult actualCode expectedCodes iOut mOutFile = do
+  if actualCode `elem` expectedCodes
+    then
+      if actualCode == 0
+        then case mOutFile of
+          Just outFile -> do
+            (result, diffOutput) <- runDiffOnOutput iOut outFile
+            return (result, diffOutput)
+          Nothing -> return (ParseFail, Just ".out file doesn't exist!")
+        else
+          return (IntFail, Just "Non-zero return code!")
+    else return (IntFail, Just "Interpreter exited with unexpected exit code!")
+```
+
+Here are the issues:
+
+1. **Failing expected non-zero exits:** If the test expects a non-zero exit code (e.g., an error case like `expectedCodes = [4]`) and the interpreter returns `4`, the code enters the `then` block because `4 `elem` [4]`. However, since `actualCode /= 0`, it falls into the `else` block and incorrectly returns `(IntFail, Just "Non-zero return code!")`. It should return `Passed` because getting the expected non-zero code is a successful test.
+2. **Incorrect failure type for missing `.out`:** If the interpreter returns `0` (and it's expected) but there is no `.out` file (`mOutFile` is `Nothing`), it returns a `ParseFail`. `ParseFail` relates to the parser, not the interpreter. 
+3. **Misalignment with docstring:** The docstring states: *"Runs diff only when the interpreter exited with code 0 AND a @.out@ file is present."* This implies that if the code is `0` but `mOutFile` is `Nothing`, it should skip the diff process and simply return as `Passed`, rather than failing.
+
+Here is how the function should likely look to correct these issues:
+
+```haskell
+checkInterpreterResult actualCode expectedCodes iOut mOutFile = do
+  if actualCode `elem` expectedCodes
+    then
+      if actualCode == 0
+        then case mOutFile of
+          Just outFile -> 
+            runDiffOnOutput iOut outFile  -- runs diff and returns (result, Just diffOutput)
+          Nothing -> 
+            return (Passed, Nothing)      -- exit 0 expected, no .out file to compare against
+        else
+          return (Passed, Nothing)        -- non-zero expected exit code obtained, test passed
+    else 
+      return (IntFail, Just "Interpreter exited with unexpected exit code!")
+```
+
+Would you like me to go ahead and fix this function for you in `src/SOLTest/Executor.hs`?
+
+----
+----
+

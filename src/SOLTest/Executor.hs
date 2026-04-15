@@ -177,9 +177,9 @@ checkInterpreterResult actualCode expectedCodes iOut mOutFile = do
           Just outFile -> do
             (result, diffOutput) <- runDiffOnOutput iOut outFile
             return (result, diffOutput)
-          Nothing -> return (ParseFail, Just ".out file doesn't exist!")
+          Nothing -> return (Passed, Nothing)
         else
-          return (IntFail, Just "Non-zero return code!")
+          return (Passed, Nothing)
     else return (IntFail, Just "Interpreter exited with unexpected exit code!")
 
 -- | Write a string to a temporary file and pass its path to an action.
