@@ -791,3 +791,86 @@ If you paste your recursive function, I’ll compress it into the correct minima
 
 ----
 ----
+Yes.
+
+You only need `filterM` because the predicate is `IO Bool`. Replace “filter then act” with “act and decide”.
+
+### Direct pattern (single pass per entry)
+
+```haskell
+discoverTests :: Bool -> FilePath -> IO [TestCaseFile]
+discoverTests recursive dir = do
+  entries <- listDirectory dir
+  let fullPaths = map (dir </>) entries
+
+  results <- mapM go fullPaths
+  return (concat results)
+  where
+    go path = do
+      isDir  <- doesDirectoryExist path
+      isFile <- doesFileExist path
+
+      if isFile && takeExtension path == ".test"
+        then do
+          t <- findCompanionFiles path
+          return [t]
+
+      else if recursive && isDir
+        then discoverTests recursive path
+
+      else
+        return []
+```
+
+### Why this works
+
+Instead of:
+
+* `filterM doesDirectoryExist`
+* `filterM doesFileExist`
+* `mapM findCompanionFiles`
+
+You:
+
+* `mapM` once
+* decide locally
+* return `[]` or `[x]`
+* `concat` at the end
+
+Same asymptotic complexity:
+O(n) directory entries, O(n) stat calls.
+
+### Baseline comparison
+
+* `filterM + mapM` = 2–3 passes conceptually
+* `mapM + concat` = 1 logical pass
+
+Filesystem IO dominates (~micro–millisecond per stat), so performance difference is negligible unless you’re scanning 10⁵–10⁶ files.
+
+### Even tighter variant
+
+If you want fewer syscalls (since `doesDirectoryExist` + `doesFileExist` both hit the FS), you can:
+
+* Check extension first (pure, cheap)
+* Only call `doesFileExist` if extension is `.test`
+* Only call `doesDirectoryExist` if `recursive`
+
+That reduces IO in large trees.
+
+### What changes the conclusion
+
+* Very large directory trees → syscall count matters
+* Network filesystems → latency dominates
+* Need strict ordering guarantees → structure slightly differs
+
+### Hidden constraint
+
+`doesDirectoryExist` and `doesFileExist` are not mutually exclusive on weird FS (symlinks). If that matters, prefer checking directory first.
+
+---
+
+Short answer: yes — use `mapM` returning `[]` or `[x]`, then `concat`. Cleaner, same semantics, no `filterM`.
+
+
+---
+---

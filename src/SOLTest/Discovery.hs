@@ -1,7 +1,9 @@
 -- | Discovering @.test@ files and their companion @.in@\/@.out@ files.
 module SOLTest.Discovery (discoverTests) where
 
-import SOLTest.Types
+-- Added Control.Monad library for filterM function
+import Control.Monad (filterM)
+import SOLTest.Types (TestCaseFile (..))
 import System.Directory
   ( doesDirectoryExist,
     doesFileExist,
@@ -14,39 +16,27 @@ import System.FilePath (replaceExtension, takeBaseName, takeExtension, (</>))
 -- When @recursive@ is 'True', subdirectories are searched recursively.
 -- Returns a list of 'TestCaseFile' records, one per @.test@ file found.
 -- The list is ordered by the file system traversal order (not sorted).
---
--- FLP: Implement this function. The following functions may come in handy:
---      @doesDirectoryExist@, @takeExtension@, @forM@ or @mapM@,
---      @findCompanionFiles@ (below).
 discoverTests :: Bool -> FilePath -> IO [TestCaseFile]
 discoverTests recursive dir = do
   entries <- listDirectory dir
   let fullPaths = map (dir </>) entries
 
-  -- Filter paths based on whether we want dirs (True) or files (False)
-  let filterPaths dirOrFile = filter (\path -> doesDirectoryExist path == dirOrFile)
-
-  -- Get folder paths
-  let getFolderPaths = filterPaths (pure True)
-  -- Get test file paths, by getting all file paths ending with .test
-  let getFilePaths paths = filter (\path -> takeExtension path == ".test") (filterPaths (pure False) paths)
-
-  -- let recSearch = getFilePaths fullPaths ++ mapM (discoverTests recursive) getFolderPaths
-  let allFiles = getFilePaths fullPaths
-
-  -- let allFiles =
-  --       if recursive
-  --         then recSearch
-  --         else getFilePaths fullPaths
-
+  -- Get test file paths, known by their extensions .test
+  let testFiles = filter (\path -> takeExtension path == ".test") fullPaths
   -- For each test file, create TestCaseFile
-  tests <- mapM findCompanionFiles allFiles
+  currentTests <- mapM findCompanionFiles testFiles
 
-  let callDiscover :: [TestCaseFile]
-  -- callDiscover = foldr(\dir rest -> ) [] (getFolderPaths fullPaths)
-  tests2 <- if recursive then callDiscover else pure tests
-
-  return tests2
+  if recursive
+    then do
+      -- Get subdir paths in current folder
+      subdirs <- filterM doesDirectoryExist fullPaths
+      -- Recursively get testCases lists from subdir
+      subdirTestsLists <- mapM (discoverTests recursive) subdirs
+      -- Concat list of lists
+      let allSubdirTests = concat subdirTestsLists
+      return (currentTests ++ allSubdirTests)
+    else
+      return currentTests
 
 -- | Build a 'TestCaseFile' for a given @.test@ file path, checking for
 -- companion @.in@ and @.out@ files in the same directory.
