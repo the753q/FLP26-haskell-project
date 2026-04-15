@@ -28,7 +28,7 @@ import SOLTest.Types
       ),
     TestCaseReport (..),
     TestCaseType (Combined, ExecuteOnly, ParseOnly),
-    TestResult (DiffFail, ParseFail, Passed),
+    TestResult (DiffFail, IntFail, ParseFail, Passed),
     UnexecutedReason (..),
     UnexecutedReasonCode (CannotExecute),
   )
@@ -159,8 +159,6 @@ runDiff actualFile expectedFile = do
 --
 -- Runs diff only when the interpreter exited with code 0 AND a @.out@ file
 -- is present.
---
--- FLP: Implement this function.
 checkInterpreterResult ::
   -- | Actual interpreter exit code.
   Int ->
@@ -171,7 +169,18 @@ checkInterpreterResult ::
   -- | Path to the @.out@ file, if present.
   Maybe FilePath ->
   IO (TestResult, Maybe String)
-checkInterpreterResult actualCode expectedCodes iOut mOutFile = undefined
+checkInterpreterResult actualCode expectedCodes iOut mOutFile = do
+  if actualCode `elem` expectedCodes
+    then
+      if actualCode == 0
+        then case mOutFile of
+          Just outFile -> do
+            (result, diffOutput) <- runDiffOnOutput iOut outFile
+            return (result, diffOutput)
+          Nothing -> return (ParseFail, Just ".out file doesn't exist!")
+        else
+          return (IntFail, Just "Non-zero return code!")
+    else return (IntFail, Just "Interpreter exited with unexpected exit code!")
 
 -- | Write a string to a temporary file and pass its path to an action.
 -- The file is deleted when the action returns.
