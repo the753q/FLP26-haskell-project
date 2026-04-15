@@ -315,3 +315,479 @@ Here are the specific bugs that were in the original implementation:
 
 
 
+**Direct answer**
+
+`IO Bool` is an *action that produces Bool*, not a Bool.
+You must **bind it** to extract the value:
+
+```haskell
+main = do
+  ok <- checkSomething
+  if ok then putStrLn "yes" else putStrLn "no"
+
+checkSomething :: IO Bool
+checkSomething = pure True
+```
+
+You cannot do:
+
+```haskell
+if checkSomething then ...
+```
+
+because `checkSomething :: IO Bool`, not `Bool`.
+
+---
+
+## Three patterns you’ll actually use
+
+### 1. Bind and branch
+
+Most common.
+
+```haskell
+do
+  b <- action
+  when b (putStrLn "true")
+```
+
+---
+
+### 2. Stay inside IO using fmap
+
+If you only need to transform:
+
+```haskell
+negated :: IO Bool
+negated = not <$> action
+```
+
+No `do`, no binding. Just mapping.
+
+---
+
+### 3. Combine multiple `IO Bool`
+
+```haskell
+bothTrue :: IO Bool
+bothTrue = (&&) <$> a <*> b
+```
+
+Equivalent to:
+
+```haskell
+do
+  x <- a
+  y <- b
+  pure (x && y)
+```
+
+---
+
+## Important mental model
+
+`IO Bool` ≠ `Bool`
+
+Think of it like:
+
+* `Bool` → value
+* `IO Bool` → recipe that will later produce a Bool
+
+Trying to treat it as `Bool` is like trying to branch on a function pointer.
+
+---
+
+## Base-rate mistake (very common)
+
+~90% of beginner IO issues come from:
+
+* Trying to compare `IO Bool` directly
+* Forgetting `<-`
+* Trying to return `Bool` from a function that actually needs `IO Bool`
+
+---
+
+## What changes the design?
+
+If your logic is pure but wrapped in IO, push IO to the boundary:
+
+Bad:
+
+```haskell
+check :: IO Bool
+check = do
+  ...
+```
+
+Better:
+
+```haskell
+checkPure :: Input -> Bool
+checkPure = ...
+
+check :: IO Bool
+check = do
+  input <- getInput
+  pure (checkPure input)
+```
+
+Keep pure logic pure.
+
+---
+
+## Edge cases
+
+* Short-circuiting does NOT happen automatically in `IO`
+* Exceptions inside `IO Bool` will abort before producing Bool
+* `unsafePerformIO` is almost always wrong
+
+---
+
+If you show your concrete snippet, I’ll refactor it cleanly.
+
+
+
+----
+-----
+
+
+**Direct issue**
+
+`checkDir :: IO Bool`
+You’re using it as `Bool`.
+
+You must bind it.
+
+---
+
+## Correct version
+
+```haskell
+do
+  let fullPaths = map (dir </>) entries
+  isDir <- doesDirectoryExist dir
+  companions <-
+    if isDir
+      then findCompanionFiles dir
+      else pure []
+```
+
+Now `companions :: [Something]` (assuming `findCompanionFiles :: FilePath -> IO [...]`).
+
+---
+
+## If you're already inside `IO`
+
+Use `when` or `bool` style:
+
+```haskell
+companions <- do
+  isDir <- doesDirectoryExist dir
+  if isDir then findCompanionFiles dir else pure []
+```
+
+---
+
+## Why your version fails
+
+You wrote:
+
+```haskell
+checkDir = doesDirectoryExist dir
+```
+
+So:
+
+```
+checkDir :: IO Bool
+```
+
+Then:
+
+```
+if checkDir then ...
+```
+
+That’s like:
+
+```
+if (recipe that may later give Bool) then ...
+```
+
+Compiler blocks it.
+
+---
+
+## Cleaner functional style
+
+```haskell
+companions =
+  doesDirectoryExist dir >>= \case
+    True  -> findCompanionFiles dir
+    False -> pure []
+```
+
+Or applicative:
+
+```haskell
+companions =
+  bool (pure []) (findCompanionFiles dir)
+    =<< doesDirectoryExist dir
+```
+
+---
+
+## Important hidden constraint
+
+`if` requires `Bool`, not `IO Bool`.
+
+You must:
+
+* bind (`<-`)
+* or use combinators (`>>=`, `<$>`, `<*>`, `bool`)
+
+---
+
+## Common failure pattern (~very frequent)
+
+Trying to “keep everything pure” inside `let`.
+
+Rule:
+
+* `let` → pure values only
+* `<-` → IO results
+
+---
+
+If you show the full function signature, I’ll tighten it to the minimal correct shape.
+
+
+----
+----
+
+**Direct answer**
+
+Use `sequence` (or `mapM`, or `traverse`).
+
+```haskell
+sequence :: [IO a] -> IO [a]
+```
+
+Example:
+
+```haskell
+actions :: [IO Int]
+actions = [pure 1, pure 2, pure 3]
+
+result :: IO [Int]
+result = sequence actions
+```
+
+Equivalent:
+
+```haskell
+result = mapM id actions
+result = traverse id actions
+```
+
+---
+
+**What it does (mechanically)**
+Transforms the structure:
+
+```
+[IO a]  →  IO [a]
+```
+
+Think:
+List outside, effects inside → pull effects outside, collect results.
+
+Like turning:
+
+```
+[print 1, print 2]
+```
+
+into:
+
+```
+do
+  x1 <- print 1
+  x2 <- print 2
+  pure [x1, x2]
+```
+
+---
+
+**Execution properties (important)**
+
+* Order: left-to-right
+* Effects: all executed
+* Short-circuit: if one throws exception → remaining actions not executed
+* Time complexity: O(n)
+* Memory: holds full result list (O(n))
+
+Baseline: same cost as manual `do` chaining.
+
+---
+
+**Parallelism?**
+
+`sequence` is sequential.
+If you need parallel execution → different abstraction (e.g. `async`, `parTraverse`, etc.).
+
+---
+
+**Edge cases**
+
+* Empty list → `pure []`
+* Infinite list → never terminates
+* Lazy IO still respects action sequencing
+
+---
+
+**What changes behavior**
+
+* Using `mapM_` → discards results (`[IO a] -> IO ()`)
+* Using `sequence_` → same as above
+* Using `foldr` manually → same semantics, more control
+
+---
+
+**Important question you didn’t ask**
+
+Do you actually need the list of results?
+If not, prefer:
+
+```haskell
+sequence_ actions
+```
+
+Less memory, clearer intent.
+
+---
+
+If you show your concrete type, I can refine it further.
+
+
+
+----
+----
+
+You can. Recursion works exactly the same in `IO`.
+
+`IO` does **not** block recursion. It just changes the return type.
+
+---
+
+## Direct pattern
+
+If you want:
+
+```haskell
+f :: A -> IO B
+```
+
+Recursive version:
+
+```haskell
+f x =
+  if stopCondition x
+     then pure result
+     else do
+       y <- step x
+       f y
+```
+
+That’s it.
+
+---
+
+## Example (simple loop)
+
+```haskell
+countDown :: Int -> IO ()
+countDown n =
+  if n <= 0
+     then pure ()
+     else do
+       print n
+       countDown (n - 1)
+```
+
+Nothing special. Just keep returning `IO`.
+
+---
+
+## Important rule
+
+Never try:
+
+```haskell
+pure (f x)
+```
+
+if `f x :: IO something`
+
+That gives:
+
+```
+IO (IO something)
+```
+
+Wrong layer.
+
+If recursive call already returns `IO`, just return it.
+
+---
+
+## If you're building a list recursively
+
+Common mistake:
+
+```haskell
+bad x = do
+  rest <- bad next
+  pure (value : rest)
+```
+
+That’s correct.
+
+But this is wrong:
+
+```haskell
+bad x =
+  pure (value : bad next)
+```
+
+Because `bad next` is `IO [a]`, not `[a]`.
+
+---
+
+## Base-rate context
+
+~80% of Haskell IO recursion errors come from:
+
+* adding `pure` where it isn’t needed
+* forgetting `do`
+* confusing `IO a` vs `a`
+
+---
+
+## Hidden constraint
+
+Every branch must return the same type:
+
+```
+IO something
+```
+
+Not sometimes `something`, sometimes `IO something`.
+
+---
+
+If you paste your recursive function, I’ll compress it into the correct minimal form.
+
+
+----
+----
