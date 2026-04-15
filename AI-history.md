@@ -922,3 +922,423 @@ withSystemTempFile "temp-out.xml" $ \p h -> do
 ```
 
 Clean. Linear. Deterministic.
+
+----
+----
+**Direct answer**
+
+`checkExecutable` verifies that:
+
+1. the path exists
+2. it is a file
+3. it has the executable permission bit
+
+It returns:
+
+* `Nothing` → file is usable
+* `Just UnexecutedReason` → something is wrong
+
+---
+
+### What each part does
+
+```haskell
+result <- try (doesFileExist path) :: IO (Either IOException Bool)
+```
+
+* `doesFileExist path` → `IO Bool`
+* `try` converts exceptions into values:
+
+  * `Left IOException`
+  * `Right Bool`
+
+So instead of crashing, errors become data.
+
+---
+
+### Case analysis
+
+```haskell
+case result of
+```
+
+#### 1️⃣ `Left err`
+
+An exception happened (permissions issue, broken FS, etc.)
+
+Returns:
+
+```haskell
+Just (UnexecutedReason CannotExecute (Just (show err)))
+```
+
+So execution failed due to system error.
+
+Base rate: this is rare (~<1% in normal FS usage), mostly permission or path issues.
+
+---
+
+#### 2️⃣ `Right False`
+
+File does **not exist**.
+
+This should return something like:
+
+```haskell
+Just (UnexecutedReason FileNotFound Nothing)
+```
+
+This is the most common failure case.
+
+---
+
+#### 3️⃣ `Right True`
+
+File exists.
+
+Now you must check permissions:
+
+```haskell
+perms <- getPermissions path
+if executable perms
+  then return Nothing
+  else return (Just (UnexecutedReason NotExecutable Nothing))
+```
+
+---
+
+### What the function models
+
+Think of it as a 3-stage pipeline:
+
+```
+filesystem reachable?
+    ↓
+file exists?
+    ↓
+has +x bit?
+```
+
+Only if all pass → `Nothing`.
+
+---
+
+### Important hidden constraints
+
+* `doesFileExist` returns False for directories
+* On Windows, "executable bit" behaves differently
+* A file can be executable but still fail at runtime (wrong arch, corrupted binary)
+
+So this checks *permission*, not *runnability*.
+
+---
+
+### Order-of-magnitude intuition
+
+In typical CI or test harness:
+
+* ~80–95% of failures are “file not found”
+* ~5–15% are “not executable”
+* <1% are IO exceptions
+
+---
+
+### Edge cases
+
+* Symlinks
+* Network FS
+* Permission changes between checks (TOCTOU race)
+* File deleted after existence check
+
+---
+
+### What would change behavior?
+
+* Running as root (permission checks differ)
+* Different OS (Windows vs POSIX)
+* Using `doesPathExist` instead
+
+---
+
+### Cleaner mental model
+
+This function converts **low-level IO failure states** into **domain-level failure reasons**.
+
+Filesystem chaos → structured test framework signal.
+
+---
+
+If you want, I can show the minimal correct implementation in 6 lines.
+
+---
+---
+**Direct answer**
+
+`Left` and `Right` are just the two constructors of:
+
+```haskell
+data Either a b = Left a | Right b
+```
+
+They’re arbitrary names. Think of them as:
+
+* `Left`  → first slot
+* `Right` → second slot
+
+Nothing directional. Just tagging.
+
+---
+
+### Why those names?
+
+Historical + mathematical convention.
+
+In category theory and functional programming, a value that can be one of two types is drawn like:
+
+```
+   a        b
+    \      /
+     \    /
+     Either a b
+```
+
+They needed two labels. “Left” and “Right” were neutral and symmetric.
+
+---
+
+### Why is `Left` usually the error?
+
+Pure convention.
+
+People decided:
+
+```
+Either Error Success
+```
+
+and then by habit:
+
+```
+Left  = error
+Right = success
+```
+
+But nothing enforces that.
+
+You *could* do:
+
+```
+Either Success Error
+```
+
+and flip meanings.
+
+---
+
+### Mental model that makes it click
+
+Think of `Either` as:
+
+```
+Union with labels
+```
+
+Like:
+
+```
+enum {
+  Left(a),
+  Right(b)
+}
+```
+
+Or in Rust terms:
+
+```
+Result<T, E>  ~  Either E T
+```
+
+Where:
+
+* `Left  ≈ Err`
+* `Right ≈ Ok`
+
+---
+
+### Why not name them `Error` and `Ok`?
+
+Because `Either` is **general-purpose**, not just for errors.
+
+Example:
+
+```haskell
+Either Int String
+```
+
+Could mean:
+
+* a number
+* or a word
+
+No error involved.
+
+---
+
+### What would change the naming?
+
+Nothing technical. It’s pure convention.
+
+If Haskell had been invented by someone else, it might have been:
+
+```
+data Either a b = First a | Second b
+```
+
+Same behavior.
+
+---
+
+### Key takeaway
+
+`Left` and `Right` are just tags for two possible shapes of data.
+
+No geometry.
+No direction.
+Just labeling which branch you’re in.
+
+Once you see it as a tagged union, it stops feeling mysterious.
+
+---
+---
+
+**Direct answer**
+
+Because:
+
+```haskell
+try (doesFileExist path)
+```
+
+returns:
+
+```haskell
+Either IOException Bool
+```
+
+So:
+
+* `Left IOException` → an exception happened
+* `Right Bool` → no exception, and the Bool is the actual result
+
+Hence:
+
+* `Right False`
+* `Right True`
+
+---
+
+### Expand the types
+
+Step by step:
+
+```haskell
+doesFileExist :: FilePath -> IO Bool
+```
+
+Then:
+
+```haskell
+try :: IO a -> IO (Either IOException a)
+```
+
+Substitute `a = Bool`:
+
+```haskell
+IO (Either IOException Bool)
+```
+
+So inside `Right` lives the original result (`Bool`).
+
+---
+
+### Mental model
+
+Think of `try` as wrapping the result in a safety box:
+
+Without `try`:
+
+```text
+IO Bool
+  → crashes OR returns True/False
+```
+
+With `try`:
+
+```text
+IO (Either IOException Bool)
+  → Left err
+  → Right True
+  → Right False
+```
+
+So `Right` just means: “no crash”.
+
+Then the `Bool` says: “exists or not”.
+
+---
+
+### Why not just True/False?
+
+Because two different failure modes exist:
+
+1. File does not exist → `False`
+2. IO exception (permission error, broken FS) → exception
+
+Without `try`, both are indistinguishable if the program crashes.
+
+With `try`, you separate:
+
+* structural failure (exception)
+* logical result (Bool)
+
+---
+
+### Concrete analogy
+
+Imagine checking a door:
+
+* `Right True`  → door exists
+* `Right False` → door doesn’t exist
+* `Left err`    → building collapsed while checking
+
+Different categories of failure.
+
+---
+
+### What would change this?
+
+If `doesFileExist` itself returned:
+
+```haskell
+IO (Maybe Bool)
+```
+
+then you wouldn’t need `Either`.
+
+But IO in Haskell models exceptional failure via exceptions, not return values.
+
+---
+
+### Big picture
+
+`Either` separates:
+
+* “did the computation run safely?”
+* “what was the result?”
+
+That’s why you see `Right False` and `Right True`.
+
+
+---
+---
+
