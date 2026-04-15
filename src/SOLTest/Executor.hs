@@ -180,7 +180,7 @@ checkInterpreterResult actualCode expectedCodes iOut mOutFile = do
           Nothing -> return (Passed, Nothing)
         else
           return (Passed, Nothing)
-    else return (IntFail, Just "Interpreter exited with unexpected exit code!")
+    else return (IntFail, Just $ "Interpreter exited with unexpected exit code: " ++ show actualCode)
 
 -- | Write a string to a temporary file and pass its path to an action.
 -- The file is deleted when the action returns.
