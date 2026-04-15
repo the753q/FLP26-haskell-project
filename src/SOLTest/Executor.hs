@@ -18,6 +18,20 @@ where
 import Control.Exception (IOException, try)
 import Data.Maybe (fromMaybe)
 import SOLTest.Types
+  ( TestCaseDefinition
+      ( tcdExpectedInterpreterExitCodes,
+        tcdExpectedParserExitCodes,
+        tcdExpectedStdoutFile,
+        tcdSourceCode,
+        tcdStdinFile,
+        tcdTestType
+      ),
+    TestCaseReport (..),
+    TestCaseType (Combined, ExecuteOnly, ParseOnly),
+    TestResult (DiffFail, ParseFail, Passed),
+    UnexecutedReason (..),
+    UnexecutedReasonCode (CannotExecute),
+  )
 import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
 import System.IO (hClose, hPutStr)
@@ -170,10 +184,14 @@ withTempSource content action =
 
 -- | Write the interpreter stdout to a temp file and diff it against @.out@.
 -- The file is deleted when the action returns.
---
--- FLP: Implement this function. It will start similarly to @withTempSource@.
 runDiffOnOutput :: String -> FilePath -> IO (TestResult, Maybe String)
-runDiffOnOutput iOut outFile = undefined
+runDiffOnOutput iOut outFile =
+  withSystemTempFile "temp-diff-out.xml" $ \tmpPath tmpHandle -> do
+    hPutStr tmpHandle iOut
+    hClose tmpHandle
+    (exitCode, diffOutput) <- runDiff tmpPath outFile
+    let result = if exitCode == ExitSuccess then Passed else DiffFail
+    return (result, Just diffOutput)
 
 -- | Ensure an executable path is provided and the file is executable,
 -- then run an action with it.  Returns 'Left' 'CannotExecute' if the

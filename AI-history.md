@@ -874,3 +874,51 @@ Short answer: yes — use `mapM` returning `[]` or `[x]`, then `concat`. Cleaner
 
 ---
 ---
+
+Direct fix:
+
+`runDiff "temp-out.xml" outFile` is outside the `do` block and ignores the temp file path. Also you must use the actual `tmpPath`, not the literal string.
+
+Correct structure:
+
+```haskell
+runDiffOnOutput :: String -> FilePath -> IO (TestResult, Maybe String)
+runDiffOnOutput iOut outFile =
+  withSystemTempFile "temp-out.xml" $ \tmpPath tmpHandle -> do
+    hPutStr tmpHandle iOut
+    hClose tmpHandle
+    runDiff tmpPath outFile
+```
+
+Why yours fails:
+
+* `withSystemTempFile` returns `IO a`
+* your last line is a separate expression
+* `"temp-out.xml"` is just a name prefix, not the real file path
+
+Mental model:
+
+`withSystemTempFile` =
+“create file → give me its real path → run my IO → delete file”
+
+You must finish everything *inside* that lambda.
+
+Hidden constraint:
+
+* If you don’t `hClose` before `runDiff`, some diff tools won’t see full content.
+* On Windows, open handle + external process = guaranteed pain.
+
+Edge case:
+
+If `runDiff` reads lazily or forks a process, ensure the file is fully flushed and closed first (you already do that, good).
+
+If you want tighter version:
+
+```haskell
+withSystemTempFile "temp-out.xml" $ \p h -> do
+  hPutStr h iOut
+  hClose h
+  runDiff p outFile
+```
+
+Clean. Linear. Deterministic.
