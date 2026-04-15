@@ -22,7 +22,9 @@ discoverTests recursive dir = do
   let fullPaths = map (dir </>) entries
 
   -- Get test file paths, known by their extensions .test
-  let testFiles = filter (\path -> takeExtension path == ".test") fullPaths
+  let testPaths = filter (\path -> takeExtension path == ".test") fullPaths
+  -- Filter out potential folders ending in .test
+  testFiles <- filterM doesFileExist testPaths
   -- For each test file, create TestCaseFile
   currentTests <- mapM findCompanionFiles testFiles
 
