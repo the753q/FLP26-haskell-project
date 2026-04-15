@@ -152,6 +152,7 @@ filterSpecParser =
 -- | Assemble raw filter string lists into a 'FilterSpec'.
 buildFilterSpec :: [String] -> [String] -> [String] -> [String] -> [String] -> [String] -> FilterSpec
 buildFilterSpec inc exc ic it ec et =
+  -- For each criteria, take corresponding strings and package them to supposed types
   FilterSpec
     { fsIncludes = map ByAny inc ++ map ByCategory ic ++ map ByTag it,
       fsExcludes = map ByAny exc ++ map ByCategory ec ++ map ByTag et,

@@ -40,14 +40,20 @@ filterTests spec tests = (selected, filteredOut)
   where
     isRegex = fsUseRegex spec
 
+    -- Check if a test is within the included list of the spec
     isIncluded :: TestCaseDefinition -> Bool
     isIncluded test = null (fsIncludes spec) || matchesAny isRegex (fsIncludes spec) test
+    -- Check if a test is within the excluded list of the spec
     isExcluded :: TestCaseDefinition -> Bool
     isExcluded = matchesAny isRegex (fsExcludes spec)
+
+    -- Get all tests included within the spec
     includedTests = foldr (\test rest -> if isIncluded test then test : rest else rest) [] tests
+    -- Filter included tests if excluded, as given by the spec
     excludedTests = foldr (\test rest -> if isExcluded test then rest else test : rest) [] includedTests
 
     selected = excludedTests
+    -- Build the 'filteredOut' list as having every test not already in the selected list
     filteredOut = foldr (\test rest -> if test `elem` selected then rest else test : rest) [] tests
 
 -- | Check whether a test matches at least one criterion in the list.
@@ -62,11 +68,13 @@ matchesAny useRegex criteria test =
 -- regular expression matched against the relevant field(s).
 matchesCriterion :: Bool -> TestCaseDefinition -> FilterCriterion -> Bool
 matchesCriterion useRegex test criterion =
+  -- Based on criterion type, test whether the given test matches the criteria
   case criterion of
     (ByTag val) -> testByTag val
     (ByCategory val) -> testByCategory val
     (ByAny val) -> testByAny val
   where
+    -- Test match for each criterion type
     testByTag val = val `elem` map trimFilterId (tcdTags test)
     testByCategory val = val == trimFilterId (tcdCategory test)
     testByAny val = (val == trimFilterId (tcdName test)) || testByCategory val || testByTag val
