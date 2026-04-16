@@ -15,6 +15,15 @@ where
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import SOLTest.Types
+  ( CategoryReport,
+    TestCaseDefinition,
+    TestCaseReport,
+    TestReport (..),
+    TestStats,
+    UnexecutedReason,
+    crPassedPoints,
+    crTotalPoints,
+  )
 
 -- ---------------------------------------------------------------------------
 -- Top-level report assembly
@@ -97,10 +106,45 @@ computeStats foundCount loadedCount selectedCount mCategoryResults = undefined
 -- The rate is mapped to a bin key (@\"0.0\"@ through @\"0.9\"@) and the count
 -- of categories in each bin is accumulated. All ten bins are always present in
 -- the result, even if their count is 0.
---
--- FLP: Implement this function.
 computeHistogram :: Map String CategoryReport -> Map String Int
-computeHistogram categories = undefined
+computeHistogram categories = Map.fromList allBinCounts
+  where
+    -- Get all category reports
+    catReports :: [CategoryReport]
+    catReports = Map.elems categories
+
+    -- Get the totals and passes from each category report
+    totalList :: [Double]
+    totalList = map (fromIntegral . crTotalPoints) catReports
+    passList :: [Double]
+    passList = map (fromIntegral . crPassedPoints) catReports
+
+    -- Calculate the pass rate for each pass - total pair
+    rates :: [Double]
+    rates =
+      zipWith
+        -- Division by zero check
+        ( \passed total ->
+            if total == 0 then 0.0 else passed / total
+        )
+        passList
+        totalList
+
+    -- Throw each rate into one of the bins
+    bins :: [String]
+    bins = map rateToBin rates
+
+    -- Create initial list of tuples of bins and their sizes
+    initBinCounts :: [(String, Int)]
+    initBinCounts = [("0." ++ show x, 0) | x <- [0 .. 9 :: Int]]
+
+    -- For each bin, calculate its size by counting bin occurences in the bins list
+    allBinCounts :: [(String, Int)]
+    allBinCounts =
+      map
+        ( \(name, _) -> (name, length (filter (== name) bins))
+        )
+        initBinCounts
 
 -- | Map a pass rate in @[0, 1]@ to a histogram bin key.
 --
