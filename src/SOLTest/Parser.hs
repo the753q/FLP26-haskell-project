@@ -79,18 +79,27 @@ emptyHeader =
 splitHeaderBody :: String -> ([String], String)
 splitHeaderBody content = (hdrLines, body)
   where
+    -- Get header lines by storing lines until coming up on empty line
     getHdr [] = []
     getHdr (x : xs)
-      | null x = []
+      -- Stop recursion on empty line
+      | all isSpace x = []
+      -- Store line and recursively call
       | otherwise = x : getHdr xs
 
+    -- Get body lines, given as the rest of the list after passing an empty line
     gdeBody [] = []
     gdeBody (x : xs)
-      | null x = xs
+      -- Stop recursion and return rest of lines
+      | all isSpace x = xs
+      -- Recursively traverse lines list
       | otherwise = gdeBody xs
 
-    hdrLines = getHdr $ lines content
-    body = unlines $ gdeBody $ lines content
+    -- Split String content into lines by newline
+    allLines = lines content
+
+    hdrLines = getHdr allLines
+    body = unlines $ gdeBody allLines
 
 -- ---------------------------------------------------------------------------
 -- Header line parsing
