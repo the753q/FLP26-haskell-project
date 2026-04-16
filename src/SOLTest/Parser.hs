@@ -76,10 +76,21 @@ emptyHeader =
 --
 -- If there is no empty line, all lines are treated as header lines and the
 -- body is empty.
---
--- FLP: Implement this function.
 splitHeaderBody :: String -> ([String], String)
-splitHeaderBody content = undefined
+splitHeaderBody content = (hdrLines, body)
+  where
+    getHdr [] = []
+    getHdr (x : xs)
+      | null x = []
+      | otherwise = x : getHdr xs
+
+    gdeBody [] = []
+    gdeBody (x : xs)
+      | null x = xs
+      | otherwise = gdeBody xs
+
+    hdrLines = getHdr $ lines content
+    body = unlines $ gdeBody $ lines content
 
 -- ---------------------------------------------------------------------------
 -- Header line parsing
@@ -90,8 +101,6 @@ splitHeaderBody content = undefined
 -- Returns 'Left' with an error message if the line has a known prefix but
 -- a malformed value (e.g. a non-integer weight). Lines with unrecognised
 -- prefixes are silently ignored, as the spec does not prohibit extra lines.
---
--- FLP: Implement the rules for all accepted headers.
 parseHeaderLine :: ParsedHeader -> String -> Either String ParsedHeader
 parseHeaderLine hdr line
   | "*** " `isPrefixOf` line =

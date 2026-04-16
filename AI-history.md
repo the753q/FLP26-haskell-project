@@ -1512,4 +1512,216 @@ executeCombined parserPath interpPath test = do
 
 ----
 ----
+test = "test \nlmao\n\nbody\n t est body\n"
 
+getLines [] = []
+getLines (x:xs) =
+  if x /= '\n'
+    then x : getLines xs
+    else getLines xs
+
+getHdr [] = []
+getHdr (x:xs) =
+  if null x
+    then getHdr []
+    else x : getHdr xs
+
+allLines = getLines test
+hdr = getHdr allLines
+
+main = putStrLn (hdr)
+
+
+
+Main.hs:16:14: error: [GHC-83865]
+    • Couldn't match type ‘Char’ with ‘t a’
+      Expected: [t a]
+        Actual: [Char]
+    • In the first argument of ‘getHdr’, namely ‘allLines’
+      In the expression: getHdr allLines
+      In an equation for ‘hdr’: hdr = getHdr allLines
+    • Relevant bindings include hdr :: [t a] (bound at Main.hs:16:1)
+   |
+16 | hdr = getHdr allLines
+   |              ^^^^^^^^
+
+Main.hs:18:18: error: [GHC-83865]
+    • Couldn't match type ‘t0 a0’ with ‘Char’
+      Expected: String
+        Actual: [t0 a0]
+    • In the first argument of ‘putStrLn’, namely ‘(hdr)’
+      In the expression: putStrLn (hdr)
+      In an equation for ‘main’: main = putStrLn (hdr)
+   |
+18 | main = putStrLn (hdr)
+   |                  ^^^
+
+
+**Direct cause**
+
+`getLines` returns a `String` (`[Char]`).
+`getHdr` expects a list of *lists* (`[[a]]`) because you call `null x`.
+
+So you're passing `[Char]` where `[[Char]]` is expected.
+
+Type mismatch:
+
+* `allLines :: String`
+* `getHdr :: [[a]] -> [[a]]`
+* but you call `getHdr allLines`
+
+That’s why GHC screams.
+
+---
+
+### What you actually want
+
+You’re trying to:
+
+1. Split into lines
+2. Take lines until the first empty one
+
+Use `lines` (already solved problem):
+
+```haskell
+test = "test \nlmao\n\nbody\n t est body\n"
+
+getHdr [] = []
+getHdr (x:xs)
+  | null x    = []
+  | otherwise = x : getHdr xs
+
+main = putStrLn $ unlines $ getHdr $ lines test
+```
+
+Done.
+
+---
+
+### Why your version failed conceptually
+
+Your `getLines`:
+
+```haskell
+getLines :: String -> String
+```
+
+It just removes `\n`.
+It does NOT create `[String]`.
+
+You need:
+
+```
+String
+↓ lines
+[String]
+```
+
+Not:
+
+```
+String
+↓ custom recursion
+String
+```
+
+---
+
+### Mental model
+
+Think:
+
+* `String` = `[Char]`
+* `[String]` = `[[Char]]`
+
+If you ever use `null x`, then `x` must be a list.
+
+So the outer structure must be a list of lists.
+
+---
+
+### Order-of-magnitude intuition
+
+* 90% of beginner Haskell type errors = list nesting mismatch.
+* If you see `Couldn't match type ‘Char’ with ‘[something]’`, you're missing one level of list.
+
+---
+
+### Edge case
+
+If the string starts with an empty line:
+
+```
+"\nbody"
+```
+
+Header becomes empty list. That’s correct behavior.
+
+---
+
+### What would change the solution?
+
+If:
+
+* Empty line might contain spaces → use `all isSpace x`
+* You need performance on huge files → use `Text`
+* You want streaming → use `conduit` / lazy IO
+
+---
+
+### Important question you didn’t ask
+
+Do you want:
+
+* first empty line only?
+* or split into header/body pair?
+
+If split:
+
+```haskell
+let (hdr, rest) = break null (lines test)
+```
+
+Cleaner. Fewer bugs. More power.
+
+----
+----
+
+Searched for "splitHeaderBody"
+Viewed Parser.hs:1-243
+Edited test_parser.hs
+Ran command: `runhaskell scratch/test_parser.hs`
+Viewed Types.hs:1-273
+
+The function `splitHeaderBody` is **partially correct** but has a notable bug regarding the specification and is implemented inefficiently.
+
+### Identified Issues
+
+1.  **Whitespace-Only Lines**: The docstring explicitly states that the split point is the first empty line, defining it as "**a line containing only whitespace**." However, the current implementation uses `null x`, which only matches a truly empty string (`""`). It will fail to split on a line containing spaces (e.g., `"  "`), treating it as a header line instead.
+2.  **Efficiency**: The function calls `lines content` twice and uses two separate recursive passes (`getHdr` and `gdeBody`) to find the same split point. This can be done in a single pass.
+3.  **Redundancy**: The manual recursion in `getHdr` and `gdeBody` is less idiomatic and more prone to errors than using standard list functions like `break` or `span`.
+
+### Recommended Fix
+
+You can use `break` with `all isSpace` to correctly handle whitespace-only lines and simplify the implementation to a single pass:
+
+```haskell
+splitHeaderBody :: String -> ([String], String)
+splitHeaderBody content = (hdrLines, body)
+  where
+    allLines = lines content
+    (hdrLines, rest) = break (all isSpace) allLines
+    body = case rest of
+      [] -> ""
+      (_ : bodyLines) -> unlines bodyLines
+```
+
+**Why this is better:**
+- **Correctness**: `all isSpace` returns `True` for both empty strings and strings containing only spaces, tabs, etc.
+- **Performance**: It processes the lines once.
+- **Robustness**: It uses standard Prelude functions, making the intent clearer.
+
+Would you like me to apply this fix to `src/SOLTest/Parser.hs` for you?
+
+----
+----
