@@ -1391,3 +1391,125 @@ Would you like me to go ahead and fix this function for you in `src/SOLTest/Exec
 ----
 ----
 
+Viewed Executor.hs:1-266
+Ran command: `cat << 'EOF' > scratch/executor_check.hs
+import SOLTest.Executor
+import SOLTest.Types
+
+main :: IO ()
+main = putStrLn "Testing executeCombined check..."
+EOF
+ghci scratch/executor_check.hs
+`
+
+`executeCombined` is not currently correct. 
+
+### What's wrong:
+When you call `executeExecuteOnly interpPath test` inside `executeCombined` (line 128), you are passing the original `test` object. 
+Because `executeExecuteOnly` reads from `tcdSourceCode test`, it ends up running the interpreter on the **original source code**, completely ignoring the `tmpPath` you created with `parserOutput`!
+
+```haskell
+          Just parserOutput ->
+            withTempSource parserOutput $ \tmpPath -> do
+              -- MISTAKE: this runs on 'test', which still holds the original source code!
+              -- The 'tmpPath' is completely ignored.
+              interpReport <- executeExecuteOnly interpPath test
+```
+
+### How to fix it:
+To properly reuse `executeExecuteOnly`, you don't even need `withTempSource` inside `executeCombined`. You can just update the `tcdSourceCode` field of your test definition with the `parserOutput` and pass that modified test definition into `executeExecuteOnly`. 
+
+Here is what the fix looks like:
+
+```haskell
+-- | Execute a 'Combined' test case.
+executeCombined :: FilePath -> FilePath -> TestCaseDefinition -> IO TestCaseReport
+executeCombined parserPath interpPath test = do
+  parserReport <- executeParseOnly parserPath test
+  case tcrParserExitCode parserReport of
+    Nothing -> return parserReport
+    Just code ->
+      if code == 0
+        then case tcrParserStdout parserReport of
+          Nothing -> return parserReport
+          Just parserOutput -> do
+            -- FIX: we update the source code to be the parser output and delegate
+            interpReport <- executeExecuteOnly interpPath (test { tcdSourceCode = parserOutput })
+            return
+              TestCaseReport
+                { tcrResult = tcrResult interpReport,
+                  tcrParserExitCode = tcrParserExitCode parserReport,
+                  tcrInterpreterExitCode = tcrInterpreterExitCode interpReport,
+                  tcrParserStdout = tcrParserStdout parserReport,
+                  tcrParserStderr = tcrParserStderr parserReport,
+                  tcrInterpreterStdout = tcrInterpreterStdout interpReport,
+                  tcrInterpreterStderr = tcrInterpreterStderr interpReport,
+                  tcrDiffOutput = tcrDiffOutput interpReport
+                }
+        else
+          return parserReport
+```
+
+Would you like me to go ahead and apply this fix to the file for you?
+
+
+
+---
+---
+
+Viewed Types.hs:1-273
+
+Your implementation of `executeCombined` is **mostly correct** and follows the "borrowed logic" approach you wanted. It correctly chains the processes and manages the temporary XML file.
+
+However, there is a **subtle logic flaw** regarding how you handle test expectations that you might want to address:
+
+### The "Masking" Bug
+Currently, you check `if parserExitCode == 0` to decide whether to run the interpreter.
+If the test definition says the parser **must fail** (e.g., `!C! 1`) but the parser **exits with 0 instead**:
+1. `parserReport` will correctly have `tcrResult = ParseFail`.
+2. But because `parserExitCode == 0`, your code **proceeds to the interpreter** anyway.
+3. If the interpreter then succeeds, `tcrResult` is overwritten with `Passed`.
+4. The final report will show the test as **`Passed`**, even though the parser failed its expectation!
+
+### How to fix it
+A more robust way is to check the `tcrResult` of the parser phase before proceeding. You only want to run the interpreter if the parser phase actually `Passed` **and** produced output (exit code 0).
+
+```haskell
+executeCombined :: FilePath -> FilePath -> TestCaseDefinition -> IO TestCaseReport
+executeCombined parserPath interpPath test = do
+  parserReport <- executeParseOnly parserPath test
+  -- 1. If the parser failed its expectation, stop and return that failure.
+  if tcrResult parserReport /= Passed
+    then return parserReport
+    else case tcrParserExitCode parserReport of
+      -- 2. If it passed and produced XML (exit 0), run the interpreter.
+      Just 0 -> case tcrParserStdout parserReport of
+        Nothing -> return parserReport
+        Just parserOutput -> withTempSource parserOutput $ \tmpPath -> do
+          (interpExitCode, iOut, iErr) <- runInterpreter interpPath tmpPath (tcdStdinFile test)
+          let code = exitCodeToInt interpExitCode
+              expectedCodes = fromMaybe [] (tcdExpectedInterpreterExitCodes test)
+          (result, diffOut) <- checkInterpreterResult code expectedCodes iOut (tcdExpectedStdoutFile test)
+          return parserReport { 
+              tcrResult = result,
+              tcrInterpreterExitCode = Just code,
+              tcrInterpreterStdout = Just iOut,
+              tcrInterpreterStderr = Just iErr,
+              tcrDiffOutput = diffOut
+          }
+      -- 3. If it passed but exit code wasn't 0 (e.g., expected !C! 1 and got 1),
+      -- we can't run the interpreter, so just return the parser's success report.
+      _ -> return parserReport
+```
+
+### Other observations:
+*   **Fields**: You are correctly populating all the `TestCaseReport` fields (`tcrParserStdout`, `tcrInterpreterStderr`, etc.).
+*   **Types**: The use of `fromMaybe []` for `expectedCodes` is correct and matches the `ExecuteOnly` implementation.
+*   **Redundancy**: By using the record update syntax (as shown in my fixed version: `parserReport { ... }`), you can avoid re-typing all the `tcrParser...` fields, making the code cleaner.
+
+**Summary:** Your current version works for the standard "everything succeeds" case, but it might skip a parser failure if the parser exits with 0 when it wasn't supposed to. Would you like me to apply the more robust version?
+
+
+----
+----
+
