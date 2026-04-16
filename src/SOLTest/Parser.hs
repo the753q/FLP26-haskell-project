@@ -26,6 +26,7 @@ import SOLTest.Types
       ),
     TestCaseType (..),
   )
+import Text.Read (readMaybe)
 
 -- ---------------------------------------------------------------------------
 -- Intermediate header type
@@ -96,7 +97,27 @@ parseHeaderLine hdr line
   | "*** " `isPrefixOf` line =
       let val = trim (drop 4 line)
        in Right hdr {phDescription = Just val}
-  -- ???
+  | "+++ " `isPrefixOf` line =
+      let val = trim (drop 4 line)
+       in Right hdr {phCategory = Just val}
+  | "--- " `isPrefixOf` line =
+      let val = trim (drop 4 line)
+       in Right hdr {phTags = phTags hdr ++ [val]}
+  | ">>> " `isPrefixOf` line =
+      let raw = trim (drop 4 line)
+       in case readMaybe raw :: Maybe Int of
+            Nothing -> Left $ "Invalid >>> value: " ++ raw
+            Just w -> Right hdr {phWeight = Just w}
+  | "!C! " `isPrefixOf` line =
+      let raw = trim (drop 4 line)
+       in case readMaybe raw :: Maybe Int of
+            Nothing -> Left $ "Invalid !C! value: " ++ raw
+            Just c -> Right hdr {phParserCodes = phParserCodes hdr ++ [c]}
+  | "!I! " `isPrefixOf` line =
+      let raw = trim (drop 4 line)
+       in case readMaybe raw :: Maybe Int of
+            Nothing -> Left $ "Invalid !I! value: " ++ raw
+            Just c -> Right hdr {phInterpreterCodes = phInterpreterCodes hdr ++ [c]}
   | otherwise = Right hdr -- unknown or comment line: skip
 
 -- | Parse all header lines into a 'ParsedHeader'.
