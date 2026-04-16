@@ -78,8 +78,6 @@ groupByCategory definitions results = undefined
 -- ---------------------------------------------------------------------------
 
 -- | Compute the 'TestStats' from available information.
---
--- FLP: Implement this function. You'll use @computeHistogram@ here.
 computeStats ::
   -- | Total @.test@ files found on disk.
   Int ->
@@ -90,7 +88,31 @@ computeStats ::
   -- | Category reports (Nothing in dry-run mode).
   Maybe (Map String CategoryReport) ->
   TestStats
-computeStats foundCount loadedCount selectedCount mCategoryResults = undefined
+computeStats foundCount loadedCount selectedCount mCategoryResults =
+  TestStats
+    { tsFoundTestFiles = foundCount,
+      tsLoadedTests = loadedCount,
+      tsSelectedTests = selectedCount,
+      tsPassedTests = passedTestsCount,
+      tsHistogram = histogram
+    }
+  where
+    -- Get number of passed tests, if any were ran
+    passedTestsCount = case mCategoryResults of
+      Nothing -> 0
+      Just mCatResults -> length passedTests
+        where
+          -- Get all category reports
+          catReports = Map.elems mCatResults
+          -- Get all tests from every category report
+          allTests = concatMap (Map.elems . crTestResults) catReports
+          -- Filter all to get only passed tests
+          passedTests = filter (\report -> tcrResult report == Passed) allTests
+
+    -- Create histogram if category results are present
+    histogram = case mCategoryResults of
+      Just mCatResults -> computeHistogram mCatResults
+      Nothing -> computeHistogram Map.empty
 
 -- ---------------------------------------------------------------------------
 -- Histogram
