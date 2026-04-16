@@ -15,14 +15,13 @@ where
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import SOLTest.Types
-  ( CategoryReport,
-    TestCaseDefinition,
-    TestCaseReport,
+  ( CategoryReport (..),
+    TestCaseDefinition (..),
+    TestCaseReport (..),
     TestReport (..),
-    TestStats,
+    TestResult (..),
+    TestStats (..),
     UnexecutedReason,
-    crPassedPoints,
-    crTotalPoints,
   )
 
 -- ---------------------------------------------------------------------------
@@ -115,9 +114,9 @@ computeHistogram categories = Map.fromList allBinCounts
 
     -- Get the totals and passes from each category report
     totalList :: [Double]
-    totalList = map (fromIntegral . crTotalPoints) catReports
+    totalList = map (fromIntegral . Map.size . crTestResults) catReports
     passList :: [Double]
-    passList = map (fromIntegral . crPassedPoints) catReports
+    passList = map (fromIntegral . Map.size . Map.filter (\r -> tcrResult r == Passed) . crTestResults) catReports
 
     -- Calculate the pass rate for each pass - total pair
     rates :: [Double]
