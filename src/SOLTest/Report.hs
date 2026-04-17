@@ -12,12 +12,15 @@ module SOLTest.Report
   )
 where
 
+import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import SOLTest.Types
   ( CategoryReport (..),
     TestCaseDefinition (..),
     TestCaseReport (..),
+    TestCategory,
+    TestName,
     TestReport (..),
     TestResult (..),
     TestStats (..),
@@ -71,7 +74,57 @@ groupByCategory ::
   [TestCaseDefinition] ->
   Map String TestCaseReport ->
   Map String CategoryReport
-groupByCategory definitions results = undefined
+groupByCategory definitions results = mCatReports
+  where
+    -- Calculate points awarded for test result
+    pointsIfPassed :: TestCaseDefinition -> TestCaseReport -> Int
+    pointsIfPassed def report =
+      if tcrResult report == Passed
+        then tcdPoints def
+        else 0
+
+    -- Update category report
+    updateCatReport :: TestCaseDefinition -> TestCaseReport -> CategoryReport -> CategoryReport
+    updateCatReport def report catReport =
+      CategoryReport
+        { crTotalPoints = crTotalPoints catReport + tcdPoints def,
+          crPassedPoints = crPassedPoints catReport + pointsIfPassed def report,
+          crTestResults = Map.insert (tcdName def) report (crTestResults catReport)
+        }
+
+    -- Initial empty category report
+    emptyCatReport :: CategoryReport
+    emptyCatReport =
+      CategoryReport
+        { crTotalPoints = 0,
+          crPassedPoints = 0,
+          crTestResults = Map.empty
+        }
+
+    -- Process each test report and update the accumulator
+    step :: Map TestCategory CategoryReport -> TestName -> TestCaseReport -> Map TestCategory CategoryReport
+    step acc testName report =
+      -- Look for the test definition which corresponds to the reported test entry
+      case find (\testDef -> tcdName testDef == testName) definitions of
+        Nothing -> acc
+        Just def ->
+          -- Insert for the given category, the updated category report
+          Map.insert category updatedCatReport acc
+          where
+            -- Get category from our test's definition
+            category :: TestCategory
+            category = tcdCategory def
+            -- Get current report for this category or create a new empty one
+            currentCatReport :: CategoryReport
+            currentCatReport = case Map.lookup category acc of
+              Just catReport -> catReport
+              Nothing -> emptyCatReport
+            -- Update the report with the new test result
+            updatedCatReport :: CategoryReport
+            updatedCatReport = updateCatReport def report currentCatReport
+
+    -- Based on the names of the tests from test reports, yield the map of category reports
+    mCatReports = Map.foldlWithKey' step Map.empty results
 
 -- ---------------------------------------------------------------------------
 -- Statistics

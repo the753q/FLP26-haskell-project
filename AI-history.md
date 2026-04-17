@@ -2424,3 +2424,649 @@ computeHistogram categories = histogram
 
 ---
 ---
+
+Direct answer:
+
+`Map.lookup` returns **one value per key**.
+If you want *all* test reports, don’t lookup — extract them.
+
+### If you want all values:
+
+```haskell
+testReports = Map.elems results
+```
+
+Type:
+
+```haskell
+Map k v -> [v]
+```
+
+That gives every report in the map.
+
+---
+
+### If you only want reports for keys in `definitions`:
+
+```haskell
+testReports =
+  mapMaybe
+    (\def -> Map.lookup (tcdName def) results)
+    definitions
+```
+
+This:
+
+* keeps only existing ones
+* avoids `Nothing`s
+
+---
+
+### If your map actually stores multiple reports per key
+
+(e.g. `Map k [TestReport]`)
+
+Then flatten:
+
+```haskell
+testReports = concat (Map.elems results)
+```
+
+---
+
+### Important distinction
+
+`Map` = one value per key.
+If you expect multiple reports per name, your type must reflect that:
+
+```haskell
+Map String [TestReport]
+```
+
+Otherwise you're logically overwriting.
+
+---
+
+### What to check
+
+* Does `results` have type `Map String TestReport`?
+  → then there is **only one** report per test.
+* Do you actually need grouping?
+  → then change the map type.
+
+Hidden constraint:
+If duplicates exist in your input and you're inserting with `Map.insert`, later inserts overwrite earlier ones (100% overwrite rate).
+
+If that’s not desired → use `Map.insertWith (++)`.
+
+---
+
+If you're unsure of your `results` type, paste it.
+
+---
+---
+Direct fix: you don’t want `Map.map`. You want only the reports matching that test name.
+
+Assuming:
+
+```haskell
+results :: Map String TestCaseReport
+```
+
+then just lookup:
+
+```haskell
+groupByCategory ::
+  [TestCaseDefinition] ->
+  Map String TestCaseReport ->
+  Map String CategoryReport
+groupByCategory definitions results = Map.fromList testCatReports
+  where
+    testCatReports =
+      map
+        (\testDef ->
+          let testName = tcdName testDef
+              mReport  = Map.lookup testName results
+              reports  = maybe [] (\r -> [(testName, r)]) mReport
+          in (tcdCategory testDef, buildCategoryReport reports)
+        )
+        definitions
+```
+
+If you instead want **all reports per category**, then filter:
+
+```haskell
+reportsFor testName =
+  Map.toList $
+    Map.filterWithKey (\k _ -> k == testName) results
+```
+
+Cleaner pattern:
+
+```haskell
+reportsFor name =
+  case Map.lookup name results of
+    Just r  -> [(name, r)]
+    Nothing -> []
+```
+
+Key idea:
+
+* `Map.map` transforms values.
+* `Map.filter` selects.
+* `Map.lookup` retrieves one.
+* `Map.toList` converts to `[(k,v)]`.
+
+Most likely you just need `Map.lookup`, not `Map.map`.
+
+If this still type-errors, show:
+
+* type of `tcdCategory`
+* type of `buildCategoryReport`
+* actual type of `results`
+
+That’s where mismatch usually hides.
+
+---
+---
+
+Viewed Report.hs:1-212
+Viewed Types.hs:1-273
+
+The goal of `groupByCategory` is to take the flat list of test execution results and organize them into summaries for each category.
+
+Here is a natural language breakdown of where everything comes from and how to connect it:
+
+### 1. What do you have?
+*   **`definitions`**: A list of `TestCaseDefinition` objects. For each test, this tells you its **Name**, its **Category** (e.g., "Basics", "Loops"), and its total **Points**.
+*   **`results`**: A `Map` that maps a test's **Name** to its `TestCaseReport` (which tells you if it `Passed` or failed).
+
+### 2. What do you need to produce?
+A `Map String CategoryReport`. The keys are category names, and each `CategoryReport` must contain:
+*   `crTotalPoints`: All possible points in this category.
+*   `crPassedPoints`: Points earned from tests that actually `Passed`.
+*   `crTestResults`: A mini-map of all individual test results for this category.
+
+### 3. How to connect it all together?
+To build this, you essentially need to "fold" or "reduce" your list of definitions into a category map. Here is the step-by-step logic:
+
+1.  **Start with an empty map**: Use `Map.empty`.
+2.  **Iterate through every `testDef` in `definitions`**:
+    *   **Find the Result**: Use the test's name (`tcdName testDef`) to look up its execution report in the `results` map.
+    *   **Identify the Category**: Get the category string (`tcdCategory testDef`).
+    *   **"Upsert" into your Category Map**: This is where `Map.insertWith` or a similar folding function is useful.
+        *   If the category **doesn't exist** in your map yet: Create a new `CategoryReport`. Set the points based on whether the test passed, and put this single test into the `crTestResults` map.
+        *   If the category **already exists**: Update the existing `CategoryReport` by adding the new test's points to `crTotalPoints`, adding the points to `crPassedPoints` (if it passed), and inserting the test report into the `crTestResults` map.
+
+### 4. Logic Summary
+Think of it like sorting mail:
+*   Each "letter" (a `TestCaseDefinition`) has a "department" (Category) on the envelope.
+*   You look inside the letter to see if it's "Completed" (Passed) or "Failed".
+*   You walk to the filing cabinet for that Department.
+    *   You add the letter's value to the "Total Possible Value" folder.
+    *   If it succeeded, you also add the value to the "Success Total" folder.
+    *   You file the letter itself in the department's "Specific Results" bin.
+
+**Hint for Implementation:** 
+Since you have a list of definitions and want to build a map, `foldl` (or `foldr`) is your best friend. In each step of the fold, you'll be using `Map.lookup` to see if you've already started a report for that category, or `Map.insertWith` to combine the new test data with the existing category summary.
+
+---
+---
+
+**Direct answer**
+
+“Start with `Map.empty`” means:
+use an empty map as the **initial accumulator value** of your fold.
+
+You do **not** create it and then map over it.
+You *grow* it step by step inside the fold.
+
+---
+
+### Mental model
+
+Think:
+
+```
+foldl' step Map.empty definitions
+```
+
+* `Map.empty` → initial state (no categories yet)
+* each `definition` → updates that map
+* result → fully built `Map String CategoryReport`
+
+It’s like building a hash table incrementally:
+
+```
+{} 
+→ add category A
+→ update category A
+→ add category B
+→ update category A
+→ done
+```
+
+---
+
+### Minimal structural example
+
+```haskell
+groupByCategory definitions results =
+  foldl' step Map.empty definitions
+  where
+    step acc def =
+      case Map.lookup (tcdName def) results of
+        Nothing -> acc
+        Just report ->
+          Map.insertWith update (tcdCategory def)
+                         (initialCategoryReport report)
+                         acc
+```
+
+Key idea:
+
+* `acc` = the growing big map
+* `Map.empty` = starting accumulator
+* each step returns a **new updated map**
+
+---
+
+### Why not `Map.map`?
+
+`Map.map` transforms values of an existing map.
+
+You don’t have the final category map yet.
+You’re **constructing** it.
+
+So this is a *reduction*, not a transformation.
+
+---
+
+### Baseline comparison
+
+| Approach    | Passes over data | Shape change allowed | Natural here? |
+| ----------- | ---------------- | -------------------- | ------------- |
+| `Map.map`   | 1                | No                   | ❌             |
+| nested maps | 2+               | awkward              | ⚠             |
+| `foldl'`    | 1                | Yes                  | ✅             |
+
+Time complexity stays **O(n log k)**
+
+* n = number of definitions
+* k = number of categories
+
+Optimal for balanced `Map`.
+
+---
+
+### What would change the conclusion?
+
+If:
+
+* `definitions` were already grouped by category
+* or you already had `Map Category [Test]`
+
+Then `Map.map` might make sense.
+
+---
+
+### Hidden constraint
+
+If multiple definitions share a category,
+you must use `Map.insertWith` (or explicit update)
+otherwise you overwrite previous category data.
+
+---
+
+### Important question you didn’t ask
+
+* Do all `definitions` have a matching entry in `results`?
+
+  * If not, your fold must ignore missing ones.
+* Can `CategoryReport` be safely merged?
+
+  * You need an associative update function.
+
+---
+
+If you want, I can now show the cleanest possible version using `Map.alter` (often even clearer than `insertWith`).
+
+
+**Direct answer**
+
+`Map.foldlWithKey'` is correct **only if you are folding over the `results` map**.
+
+If your primary driver is `definitions :: [TestCaseDefinition]`,
+then `foldl'` over the list is more natural.
+
+---
+
+## When `Map.foldlWithKey'` is better
+
+Use it when:
+
+* `results :: Map String TestCaseReport` is your main data
+* every report must be processed
+* `definitions` is only used for metadata lookup
+
+Structure:
+
+```haskell
+Map.foldlWithKey' step Map.empty results
+```
+
+Here:
+
+* key = test name
+* value = TestCaseReport
+* accumulator = category map you're building
+
+---
+
+## Structural example
+
+```haskell
+groupByCategory definitions results =
+  Map.foldlWithKey' step Map.empty results
+  where
+    defMap = Map.fromList [(tcdName d, d) | d <- definitions]
+
+    step acc testName report =
+      case Map.lookup testName defMap of
+        Nothing -> acc
+        Just def ->
+          Map.insertWith update
+            (tcdCategory def)
+            (initialCategoryReport report)
+            acc
+```
+
+Now you:
+
+* traverse results once
+* lookup definition in O(log n)
+* update category in O(log k)
+
+Total: **O(n log n)**
+
+Same asymptotic cost as folding definitions.
+
+---
+
+## Which one is cleaner?
+
+Depends on data dominance.
+
+| If this is guaranteed            | Better fold             |
+| -------------------------------- | ----------------------- |
+| Every definition has result      | `foldl' definitions`    |
+| Every result has definition      | `foldlWithKey' results` |
+| Results smaller than definitions | fold results            |
+| Definitions smaller              | fold definitions        |
+
+You want to fold the **smaller structure** for cache + branch efficiency.
+
+---
+
+## Subtle edge case
+
+If some `definitions` have no result:
+
+* folding `results` automatically ignores them (good)
+* folding `definitions` requires lookup check
+
+If some `results` have no definition:
+
+* folding `definitions` ignores them (good)
+* folding `results` requires lookup check
+
+Symmetric.
+
+---
+
+## Hidden constraint
+
+If `definitions` is large and reused frequently,
+pre-building `defMap` once is important.
+Otherwise repeated `Map.lookup` becomes dominant.
+
+---
+
+## What changes the conclusion?
+
+If:
+
+* you switch to `HashMap` (better constant factor)
+* you pre-group definitions by category beforehand
+* categories are very small (k << n)
+
+Then structure choice matters less.
+
+---
+
+## Rule of thumb
+
+Fold the structure that:
+
+1. Contains the complete set you must process
+2. Is smaller
+3. Avoids extra conversions
+
+---
+
+If you tell me sizes of:
+
+* number of definitions
+* number of results
+* number of categories
+
+I can tell you which variant is measurably better.
+
+---
+---
+
+**`Map.insert` vs `Map.insertWith` (Data.Map)**
+
+### 1. `Map.insert`
+
+Straight overwrite.
+
+```haskell
+insert :: Ord k => k -> a -> Map k a -> Map k a
+```
+
+* Always replaces existing value for key
+* No merging logic
+
+Example:
+
+```haskell
+Map.insert "a" 1 (Map.fromList [("a", 99)])
+-- result: fromList [("a",1)]
+```
+
+Think: *“new value wins, end of story”*
+
+---
+
+### 2. `Map.insertWith`
+
+Insert + combine if key exists.
+
+```haskell
+insertWith :: Ord k => (a -> a -> a) -> k -> a -> Map k a -> Map k a
+```
+
+* If key exists → combine old + new using function
+* If not → just insert
+
+Example:
+
+```haskell
+Map.insertWith (+) "a" 1 (Map.fromList [("a", 99)])
+-- result: fromList [("a",100)]
+```
+
+Think: *“if collision happens, resolve it like a merge rule”*
+
+---
+
+### Mental model (important)
+
+* `insert` = **assign**
+* `insertWith` = **reduce collision**
+
+---
+
+### Base-rate intuition (when to use what)
+
+* ~70–80% of Map updates → `insert` (simple overwrite, configs, state updates)
+* ~20–30% → `insertWith` (aggregation, counting, merging)
+
+Example real use cases:
+
+* `insert`: cache update, latest sensor value
+* `insertWith (+)`: word counts, histogram building
+
+---
+
+### Common gotcha
+
+If you do:
+
+```haskell
+insertWith (\new old -> new) k v
+```
+
+you basically recreated `insert` (just more expensive mentally).
+
+---
+
+### Hidden constraint people miss
+
+`insertWith` is only useful if:
+
+* you actually care about existing value
+* you have a deterministic merge rule
+
+Otherwise it’s just extra cognitive overhead.
+
+---
+
+If you want, I can map this directly onto your `foldlWithKey'` usage so you see how it behaves in real pipelines.
+
+---
+---
+
+Searched for "groupByCategory"
+Viewed Report.hs:1-234
+Ran command: `cabal test`
+Viewed ReportSpec.hs:1-148
+Ran command: `find test -name "*Spec.hs"`
+Viewed Types.hs:1-273
+Ran command: `cat << 'EOF' > test_groupby.hs
+import Data.Map.Strict as Map
+import SOLTest.Types
+import SOLTest.Report
+
+def1 = TestCaseDefinition "test1" "" Nothing Nothing ParseOnly Nothing "CatA" [] 10 Nothing Nothing ""
+def2 = TestCaseDefinition "test2" "" Nothing Nothing ParseOnly Nothing "CatA" [] 20 Nothing Nothing ""
+def3 = TestCaseDefinition "test3" "" Nothing Nothing ParseOnly Nothing "CatB" [] 30 Nothing Nothing ""
+
+rep1 = TestCaseReport Passed (Just 0) Nothing Nothing Nothing Nothing Nothing Nothing
+rep2 = TestCaseReport ParseFail (Just 1) Nothing Nothing Nothing Nothing Nothing Nothing
+
+defs = [def1, def2, def3]
+results = Map.fromList [("test1", rep1), ("test2", rep2)]
+
+main = print $ groupByCategory defs results
+EOF
+runhaskell -i/workspace/src test_groupby.hs
+`
+Ran command: `cat << 'EOF' > test_groupby2.hs
+import Data.Map.Strict as Map
+import SOLTest.Types
+import SOLTest.Report
+
+-- This is just to ensure it still compiles and works
+EOF
+`
+
+Functionally, your `groupByCategory` implementation is **correct**. It produces the right `CategoryReport` map and successfully calculates the points and groups the results. 
+
+However, there are two major areas where the code can be improved to be more idiomatic and performant, which is also strongly hinted at by the comments in your code:
+
+### 1. Performance: $O(N \times M)$ Complexity
+Inside your `step` function, you are using `find` on the list of `definitions` for every single test result. 
+```haskell
+case find (\testDef -> tcdName testDef == testName) definitions of
+```
+Since `find` scans the list from the beginning every time, this gives your function an $O(N \times M)$ time complexity (where $N$ is the number of results and $M$ is the number of definitions). 
+**Fix:** You should convert `definitions` into a `Map String TestCaseDefinition` beforehand using `Map.fromList`. This reduces the lookup time to $O(\log N)$.
+
+### 2. Reinventing `Map.insertWith`
+The comment hints that `@Map.insertWith@` may come in handy. In your code, you manually recreated the behavior of `Map.insertWith` using `Map.lookup` and `Map.insert`:
+```haskell
+currentCatReport = case Map.lookup category acc of
+  Just catReport -> catReport
+  Nothing -> emptyCatReport
+updatedCatReport = updateCatReport def report currentCatReport
+Map.insert category updatedCatReport acc
+```
+**Fix:** Using `Map.insertWith` allows you to define how to merge a new entry into an existing entry, which handles both creating a new category report and updating an existing one in a single line.
+
+---
+
+### Recommended Refactoring
+Here is how you can refactor your function to use the hinted functions (`Map.fromList`, `Map.insertWith`, etc.) for much cleaner and faster code:
+
+```haskell
+groupByCategory ::
+  [TestCaseDefinition] ->
+  Map String TestCaseReport ->
+  Map String CategoryReport
+groupByCategory definitions results = Map.foldlWithKey' step Map.empty results
+  where
+    -- 1. Create a map of definitions for O(log n) lookups instead of using `find`
+    defMap :: Map String TestCaseDefinition
+    defMap = Map.fromList [ (tcdName d, d) | d <- definitions ]
+
+    -- Calculate points awarded for test result
+    pointsIfPassed :: TestCaseDefinition -> TestCaseReport -> Int
+    pointsIfPassed def report =
+      if tcrResult report == Passed
+        then tcdPoints def
+        else 0
+
+    -- 2. Combine a new report with an existing one (used by Map.insertWith)
+    mergeCatReport :: CategoryReport -> CategoryReport -> CategoryReport
+    mergeCatReport new old =
+      CategoryReport
+        { crTotalPoints = crTotalPoints old + crTotalPoints new,
+          crPassedPoints = crPassedPoints old + crPassedPoints new,
+          crTestResults = Map.union (crTestResults old) (crTestResults new)
+        }
+
+    -- 3. Create a single-item CategoryReport for a single test result
+    singletonCatReport :: TestCaseDefinition -> TestCaseReport -> CategoryReport
+    singletonCatReport def report =
+      CategoryReport
+        { crTotalPoints = tcdPoints def,
+          crPassedPoints = pointsIfPassed def report,
+          crTestResults = Map.singleton (tcdName def) report
+        }
+
+    -- Process each test report and update the accumulator
+    step :: Map TestCategory CategoryReport -> TestName -> TestCaseReport -> Map TestCategory CategoryReport
+    step acc testName report =
+      case Map.lookup testName defMap of
+        Nothing -> acc
+        Just def ->
+          -- 4. Use Map.insertWith to handle both insert and update gracefully
+          Map.insertWith mergeCatReport (tcdCategory def) (singletonCatReport def report) acc
+```
+
+This version reads much more cleanly, uses all the functions mentioned in the `@FLP:` hint, and executes significantly faster on larger sets of tests! Let me know if you'd like me to apply these changes to the file for you.
+
+
+
