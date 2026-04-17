@@ -66,10 +66,6 @@ buildReport discovered unexecuted mResults selected foundCount =
 -- one per category.
 --
 -- The @definitions@ list is used to look up each test's category and points.
---
--- FLP: Implement this function. The following functions may (or may not) come in handy:
---      @Map.fromList@, @Map.foldlWithKey'@, @Map.empty@, @Map.lookup@, @Map.insertWith@,
---      @Map.map@, @Map.fromList@
 groupByCategory ::
   [TestCaseDefinition] ->
   Map String TestCaseReport ->

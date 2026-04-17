@@ -30,8 +30,6 @@ import SOLTest.Types
 -- * @filteredOut@ are the tests that were removed by filtering.
 --
 -- The union of @selected@ and @filteredOut@ always equals the input list.
---
--- FLP: Implement this function using @matchesAny@ and @matchesCriterion@.
 filterTests ::
   FilterSpec ->
   [TestCaseDefinition] ->
